@@ -99,7 +99,7 @@ class MyApp extends StatelessWidget {
               /// Fake window border
               Container(
                 decoration: BoxDecoration(
-                  color: Colors.black,
+                  color: const Color.fromARGB(255, 30, 30, 30),
                   borderRadius: BorderRadius.circular(13),
                 ),
                 child: Container(
@@ -128,10 +128,12 @@ class MyApp extends StatelessWidget {
               ),
 
 
-
+              
               Column(children: [
 
                   //TITLEBAR
+
+                 
                   Container(
                     height: 31, 
                     width: double.infinity, 
@@ -147,13 +149,14 @@ class MyApp extends StatelessWidget {
                       ),
                     ),
                   ),
-
+                  
 
                   
 
-              ]),
+              ]), 
+              
 
-                  
+              
               
               //BUTTONS
               Row(children: [
