@@ -1,15 +1,11 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
-
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
-import 'package:flutter_pty/flutter_pty.dart';
-
 import 'package:window_manager/window_manager.dart';
 import 'package:xterm/xterm.dart';
+
+import 'terminal.dart';
 
 
 // colors to be placed in a different location
@@ -39,24 +35,25 @@ final maximizeButton = WindowButtonColors(
 );
 
 
+final macosterminal = MacosTerminal(10000);
+final terminalwidth = macosterminal.terminal.viewWidth.toString();
+final terminalheight = macosterminal.terminal.viewHeight.toString();      
+
 
 void main() async {
 
   WidgetsFlutterBinding.ensureInitialized();
   windowManager.ensureInitialized();
-
   Window.initialize();
-  Window.hideWindowControls();
- 
-  
+
   Window.setEffect(effect: WindowEffect.transparent);
   
   doWhenWindowReady(() async {
 
     await windowManager.setAsFrameless();
-    await windowManager.setHasShadow(false);
+    //await windowManager.setHasShadow(false);
     await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
-    const initialSize = Size(550, 405);
+    const initialSize = Size(600, 405);
 
     appWindow.minSize = initialSize;
     appWindow.size = initialSize;
@@ -66,13 +63,11 @@ void main() async {
 
   });
 
- 
- 
-  
-  
-  
+
 
   runApp(const MyApp());
+  
+
 
   
 }
@@ -95,21 +90,25 @@ class MyApp extends StatelessWidget {
           borderRadius: BorderRadius.circular(13),
           child: Stack(
             children: [
+
               
               /// Fake window border
               Container(
+                
                 decoration: BoxDecoration(
-                  color: const Color.fromARGB(255, 30, 30, 30),
+                  color: const Color.fromRGBO(0, 0, 0, 0.7),
+                  
                   borderRadius: BorderRadius.circular(13),
                 ),
                 child: Container(
-                  margin: const EdgeInsets.all(8),
+                  margin: const EdgeInsets.all(0.1),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(10),
                     child: child!,
                   ),
                 ),
               ),
+
               
 
               /// Resizable Border
@@ -129,39 +128,35 @@ class MyApp extends StatelessWidget {
 
 
               
-              Column(children: [
+             
 
-                  //TITLEBAR
-
-                 
-                  Container(
-                    height: 31, 
-                    width: double.infinity, 
-                    color: const Color.fromARGB(255, 240, 241, 240),
-                    child: MoveWindow(
-                      child: const Center(
-                        child: Material(
-                          child: Text(
-                            "Samuel - -bash -- 80x24",
-                            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 14),
-                          ),
-                        ),
+              //TITLEBAR
+              Container(
+                height: 31, 
+                width: double.infinity, 
+                color: const Color.fromARGB(255, 240, 241, 240),
+                child: MoveWindow(
+                  child: Center(
+                    child: Material(
+                      child: Text(
+                        "Samuel - -bash -- ${terminalwidth}x$terminalheight",
+                        style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 14),
                       ),
                     ),
                   ),
-                  
+                ),
+              ),
+              
 
-                  
 
-              ]), 
+
+             
               
 
               
               
               //BUTTONS
               Row(children: [
-
-                
 
                 const SizedBox(height: 10,width: 8.586),
               
@@ -208,7 +203,6 @@ class MyApp extends StatelessWidget {
                 ),
 
                 
-                
                 const Padding(padding:EdgeInsets.only(bottom: 35)),
 
               ]),
@@ -247,103 +241,69 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
 
-  final terminal = Terminal(
-    maxLines: 10000,
-  );
-
-
-  final terminalController = TerminalController();
-
-  late final Pty pty;
 
   @override
   void initState() {
     super.initState();
 
+    
     WidgetsBinding.instance.endOfFrame.then(
       (_) {
-        if (mounted) _startPty();
+        if (mounted) macosterminal.startPty();
       },
     );
-  }
 
-  void _startPty() {
-    pty = Pty.start(
-      shell,
-      columns: terminal.viewWidth,
-      rows: terminal.viewHeight,
-    );
-
-    pty.output
-        .cast<List<int>>()
-        .transform(const Utf8Decoder())
-        .listen(terminal.write);
-
-    pty.exitCode.then((code) {
-      terminal.write('the process exited with exit code $code');
-    });
-
-    terminal.onOutput = (data) {
-      pty.write(const Utf8Encoder().convert(data));
-    };
-
-    terminal.onResize = (w, h, pw, ph) {
-      pty.resize(h, w);
-    };
   }
 
 
-
-
-   @override
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: 
-        Padding(
-          padding: const EdgeInsets.only(top: 25),
-          child: SafeArea(
-            child: TerminalView(
-              terminal,
-              controller: terminalController,
-              autofocus: true,
-              //backgroundOpacity: 0.7,
-              onSecondaryTapDown: (details, offset) async {
-                final selection = terminalController.selection;
-                if (selection != null) {
-                  final text = terminal.buffer.getText(selection);
-                  terminalController.clearSelection();
-                  await Clipboard.setData(ClipboardData(text: text));
-                } else {
-                  final data = await Clipboard.getData('text/plain');
-                  final text = data?.text;
-                  if (text != null) {
-                    terminal.paste(text);
-                  }
-                }
-              },
+      backgroundColor: Colors.transparent,
+      body:
+        
+          
+      
+          Container(
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: const Color.fromARGB(255, 240, 241, 240),
+                width: 0.3,
+                style: BorderStyle.solid,
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 27 ,left: 8),
+              child: SafeArea(
+                child: TerminalView(
+                  macosterminal.terminal,
+                  controller: macosterminal.terminalController,
+                  autofocus: true,
+                  backgroundOpacity: 0,
+                  onSecondaryTapDown: (details, offset) async {
+                    final selection = macosterminal.terminal.terminalController.selection;
+                    if (selection != null) {
+                      final text = macosterminal.terminal.buffer.getText(selection);
+                      macosterminal.terminalController.clearSelection();
+                      await Clipboard.setData(ClipboardData(text: text));
+                    } else {
+                      final data = await Clipboard.getData('text/plain');
+                      final text = data?.text;
+                      if (text != null) {
+                        macosterminal.terminal.paste(text);
+                      }
+                    }
+                  },
+                ),
+              ),
             ),
           ),
-        ),
 
-
+        
 
       );
     
   }
-}
-
-
-String get shell {
-  if (Platform.isMacOS || Platform.isLinux) {
-    return Platform.environment['SHELL'] ?? 'bash';
-  }
-
-  if (Platform.isWindows) {
-    return 'cmd.exe';
-  }
-
-  return 'sh';
 }
 
 
