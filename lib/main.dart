@@ -4,10 +4,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'package:bitsdojo_window/bitsdojo_window.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
+import 'package:flutter_pty/flutter_pty.dart';
 
 import 'package:window_manager/window_manager.dart';
-
+import 'package:xterm/xterm.dart';
 
 
 // colors to be placed in a different location
@@ -45,6 +47,7 @@ void main() async {
 
   Window.initialize();
   Window.hideWindowControls();
+ 
   
   Window.setEffect(effect: WindowEffect.transparent);
   
@@ -62,6 +65,11 @@ void main() async {
 
 
   });
+
+ 
+ 
+  
+  
   
 
   runApp(const MyApp());
@@ -139,6 +147,9 @@ class MyApp extends StatelessWidget {
                       ),
                     ),
                   ),
+
+
+                  
 
               ]),
 
@@ -233,62 +244,80 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
 
-  final _controller = TextEditingController();
-  String _output = '';
+  final terminal = Terminal(
+    maxLines: 10000,
+  );
 
 
-  
-  
-  
+  final terminalController = TerminalController();
 
+  late final Pty pty;
 
   @override
+  void initState() {
+    super.initState();
+
+    WidgetsBinding.instance.endOfFrame.then(
+      (_) {
+        if (mounted) _startPty();
+      },
+    );
+  }
+
+  void _startPty() {
+    pty = Pty.start(
+      shell,
+      columns: terminal.viewWidth,
+      rows: terminal.viewHeight,
+    );
+
+    pty.output
+        .cast<List<int>>()
+        .transform(const Utf8Decoder())
+        .listen(terminal.write);
+
+    pty.exitCode.then((code) {
+      terminal.write('the process exited with exit code $code');
+    });
+
+    terminal.onOutput = (data) {
+      pty.write(const Utf8Encoder().convert(data));
+    };
+
+    terminal.onResize = (w, h, pw, ph) {
+      pty.resize(h, w);
+    };
+  }
+
+
+
+
+   @override
   Widget build(BuildContext context) {
     return Scaffold(
-    body: Column(
-      children: [
-
-        
-        Expanded(
-          child: Container(
-            width: double.infinity,
-            color: Colors.black,
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 8.0),
-                child: Text(_output, style: const TextStyle(color: Colors.white)),
-              ),
-            ),
-          ),
-        ),
-
-
-        Container(
-          decoration: const BoxDecoration(
-            color: Colors.black,
-          ),
-          child: Padding(
-            padding: const EdgeInsets.only(left: 8),
-            child: TextField(
-              controller: _controller,
-              decoration: const InputDecoration(prefix: Text('Samuel~ ',style: TextStyle(color: Colors.white)),isDense: false,),
-              style: const TextStyle(color: Colors.white),
-              onSubmitted: (value) async {
-                _output = '';
-                setState(() {});
-                final process = await Process.start('powershell', ['-NoExit']);
-                process.stdout.listen((data) {
-                  setState(() {
-                    _output += utf8.decode(data);
-                  });
-                });
-                process.stderr.listen((data) {
-                  setState(() {
-                    _output += utf8.decode(data);
-                  });
-                });
-                int exitCode = await process.exitCode;
-                print("Exit code: $exitCode");
+      backgroundColor: Colors.black,
+      body: 
+        Padding(
+          padding: const EdgeInsets.only(top: 25),
+          child: SafeArea(
+            child: TerminalView(
+              terminal,
+              controller: terminalController,
+              autofocus: true,
+              //backgroundOpacity: 0.7,
+              onSecondaryTapDown: (details, offset) async {
+                final selection = terminalController.selection;
+                if (selection != null) {
+                  final text = terminal.buffer.getText(selection);
+                  terminalController.clearSelection();
+                  await Clipboard.setData(ClipboardData(text: text));
+                } else {
+                  final data = await Clipboard.getData('text/plain');
+                  final text = data?.text;
+                  if (text != null) {
+                    terminal.paste(text);
+                  }
+                }
               },
             ),
           ),
@@ -296,17 +325,23 @@ class _MyHomePageState extends State<MyHomePage> {
 
 
 
-      ],
-    ),
-  );
-
-
+      );
     
   }
 }
 
 
+String get shell {
+  if (Platform.isMacOS || Platform.isLinux) {
+    return Platform.environment['SHELL'] ?? 'bash';
+  }
 
+  if (Platform.isWindows) {
+    return 'cmd.exe';
+  }
+
+  return 'sh';
+}
 
 
 
