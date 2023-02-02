@@ -41,6 +41,8 @@ dependencies:
   process_run: any
   xterm: any
   flutter_pty: any
+  win32 : any
+  ffi : any
 
 
 dev_dependencies:

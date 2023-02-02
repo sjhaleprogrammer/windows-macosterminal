@@ -1,11 +1,69 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:ffi' show Uint16, Uint32, Uint32Pointer, sizeOf;
+
+
+
+import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:xterm/xterm.dart';
+import 'package:flutter_pty/flutter_pty.dart';
+import 'package:win32/win32.dart' hide MoveWindow;
 
-import 'terminal.dart';
+
+
+
+// This is the max win32 username length. It is missing from the win32 package,
+// so we'll just create our own constant.
+const unLen = 256;
+
+String getUsername() {
+  return using<String>((arena) {
+    final buffer = arena.allocate<Utf16>(sizeOf<Uint16>() * (unLen + 1));
+    final bufferSize = arena.allocate<Uint32>(sizeOf<Uint32>());
+    bufferSize.value = unLen + 1;
+    final result = GetUserName(buffer, bufferSize);
+    if (result == 0) {
+      GetLastError();
+      throw Exception(
+          'Failed to get win32 username: error 0x${result.toRadixString(16)}');
+    }
+    return buffer.toDartString();
+  });
+}
+
+
+
+final macosterminal = Terminal( maxLines: 10000,);
+final terminalController = TerminalController();
+late final Pty pty;
+
+
+
+
+final terminalwidth = macosterminal.viewWidth.toString();
+final terminalheight = macosterminal.viewHeight.toString();
+
+
+var brightness = SchedulerBinding.instance.window.platformBrightness;
+bool isDark = brightness == Brightness.dark;  
+
+const titlebarcolorlight = Color.fromARGB(255, 226, 226, 226);
+const titlebarcolordark = Color.fromARGB(255, 71,73,73);
+//Color.fromARGB(255, 240, 241, 240) light theme titlebar
+
+
+
+const windowcolorlight = Color.fromARGB(255, 255, 255, 255);
+const windowcolordark = Color.fromARGB(255, 30,30,30);
+
+//Color.fromRGBO(0, 0, 0, 0.7) dark transparent
 
 
 // colors to be placed in a different location
@@ -33,11 +91,6 @@ final maximizeButton = WindowButtonColors(
   iconMouseDown: Colors.transparent,
   
 );
-
-
-final macosterminal = MacosTerminal(10000);
-final terminalwidth = macosterminal.terminal.viewWidth.toString();
-final terminalheight = macosterminal.terminal.viewHeight.toString();      
 
 
 void main() async {
@@ -83,7 +136,11 @@ class MyApp extends StatelessWidget {
   // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    
+
+
+  
+
+
     return MaterialApp(
       builder: (context, child) {
         return ClipRRect(
@@ -96,8 +153,7 @@ class MyApp extends StatelessWidget {
               Container(
                 
                 decoration: BoxDecoration(
-                  color: const Color.fromRGBO(0, 0, 0, 0.7),
-                  
+                  color: isDark ? windowcolordark : windowcolorlight,
                   borderRadius: BorderRadius.circular(13),
                 ),
                 child: Container(
@@ -129,18 +185,28 @@ class MyApp extends StatelessWidget {
 
               
              
-
+             
               //TITLEBAR
               Container(
-                height: 31, 
-                width: double.infinity, 
-                color: const Color.fromARGB(255, 240, 241, 240),
+                height: 31,
+                width: double.infinity,
+                decoration:BoxDecoration(
+                  color: isDark ? titlebarcolordark : titlebarcolorlight,
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black26,
+                      blurRadius: 5.0,
+                      offset: Offset(0, -2)
+                    )
+                  ]
+                ),
                 child: MoveWindow(
                   child: Center(
                     child: Material(
+                      color: isDark ? titlebarcolordark : titlebarcolorlight,
                       child: Text(
-                        "Samuel - -bash -- ${terminalwidth}x$terminalheight",
-                        style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 14),
+                        "${getUsername()} - cmd -- ${terminalwidth}x$terminalheight",
+                        style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontSize: 14),
                       ),
                     ),
                   ),
@@ -241,6 +307,30 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
 
+   void startPty() {
+    pty = Pty.start(
+      shell,
+      columns: macosterminal.viewWidth,
+      rows: macosterminal.viewHeight,
+    );
+
+    pty.output
+        .cast<List<int>>()
+        .transform(const Utf8Decoder())
+        .listen(macosterminal.write);
+
+    pty.exitCode.then((code) {
+      macosterminal.write('the process exited with exit code $code');
+    });
+
+    macosterminal.onOutput = (data) {
+      pty.write(const Utf8Encoder().convert(data));
+    };
+
+    macosterminal.onResize = (w, h, pw, ph) {
+      pty.resize(h, w);
+    };
+  }   
 
   @override
   void initState() {
@@ -249,7 +339,7 @@ class _MyHomePageState extends State<MyHomePage> {
     
     WidgetsBinding.instance.endOfFrame.then(
       (_) {
-        if (mounted) macosterminal.startPty();
+        if (mounted) startPty();
       },
     );
 
@@ -268,29 +358,52 @@ class _MyHomePageState extends State<MyHomePage> {
             decoration: BoxDecoration(
               border: Border.all(
                 color: const Color.fromARGB(255, 240, 241, 240),
-                width: 0.3,
+                width: 0.2,
                 style: BorderStyle.solid,
               ),
             ),
             child: Padding(
-              padding: const EdgeInsets.only(top: 27 ,left: 8),
+              padding: const EdgeInsets.only(top: 33 ,left: 8),
               child: SafeArea(
                 child: TerminalView(
-                  macosterminal.terminal,
-                  controller: macosterminal.terminalController,
+                  theme: TerminalTheme(cursor: Color(0XFFAEAFAD),
+                    selection: Color(0XFFAEAFAD),
+                    foreground: isDark ? Colors.white : Colors.black,
+                    background: Color(0XFF000000),
+                    black: Color(0XFF000000),
+                    red: Color(0XFFCD3131),
+                    green: Color(0XFF0DBC79),
+                    yellow: Color(0XFFE5E510),
+                    blue: Color(0XFF2472C8),
+                    magenta: Color(0XFFBC3FBC),
+                    cyan: Color(0XFF11A8CD),
+                    white: Color(0XFFE5E5E5),
+                    brightBlack: Color(0XFF666666),
+                    brightRed: Color(0XFFF14C4C),
+                    brightGreen: Color(0XFF23D18B),
+                    brightYellow: Color(0XFFF5F543),
+                    brightBlue: Color(0XFF3B8EEA),
+                    brightMagenta: Color(0XFFD670D6),
+                    brightCyan: Color(0XFF29B8DB),
+                    brightWhite: Color(0XFFFFFFFF),
+                    searchHitBackground: Color(0XFFFFFF2B),
+                    searchHitBackgroundCurrent: Color(0XFF31FF26),
+                    searchHitForeground: Color(0XFF000000),),
+                  macosterminal,
+                  controller: terminalController,
                   autofocus: true,
                   backgroundOpacity: 0,
                   onSecondaryTapDown: (details, offset) async {
-                    final selection = macosterminal.terminal.terminalController.selection;
+                    final selection = terminalController.selection;
                     if (selection != null) {
-                      final text = macosterminal.terminal.buffer.getText(selection);
-                      macosterminal.terminalController.clearSelection();
+                      final text = macosterminal.buffer.getText(selection);
+                      terminalController.clearSelection();
                       await Clipboard.setData(ClipboardData(text: text));
                     } else {
                       final data = await Clipboard.getData('text/plain');
                       final text = data?.text;
                       if (text != null) {
-                        macosterminal.terminal.paste(text);
+                        macosterminal.paste(text);
                       }
                     }
                   },
@@ -299,7 +412,7 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
           ),
 
-        
+          
 
       );
     
@@ -307,8 +420,26 @@ class _MyHomePageState extends State<MyHomePage> {
 }
 
 
+bool get isDesktop {
+        if (kIsWeb) return false;
+        return [
+          TargetPlatform.windows,
+          TargetPlatform.linux,
+          TargetPlatform.macOS,
+        ].contains(defaultTargetPlatform);
+      }
 
+String get shell {
+        if (Platform.isMacOS || Platform.isLinux) {
+          return Platform.environment['SHELL'] ?? 'bash';
+        }
 
+        if (Platform.isWindows) {
+          return 'cmd.exe';
+        }
+
+        return 'sh';
+      }
 
 
 
